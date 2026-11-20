@@ -1,0 +1,29 @@
+# Lost In Translation — Specialized Small LM (14B) QLoRA + Adversarial DPO Config
+# Recommended target family: 7B–32B open-weights mathematical / code models:
+#   - Qwen/Qwen2.5-Math-7B-Instruct
+#   - Qwen/Qwen2.5-14B-Instruct
+#   - Qwen/Qwen2.5-32B-Instruct
+#   - deepseek-ai/DeepSeek-Prover-V1.5-RL
+
+base_model: "Qwen/Qwen2.5-14B-Instruct"
+output_dir: "training/checkpoints/lit-qwen25-14b-lean2latex"
+
+sft_dataset: "training/outputs/sft_literal_train.jsonl"
+dpo_dataset: "training/outputs/dpo_adversarial_train.jsonl"
+
+# Quantization & LoRA
+load_in_4bit: true
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+
+# SFT Hyperparameters
+epochs: 3
+batch_size: 2
+grad_accum: 8
+learning_rate: 0.0002
+
+# Adversarial DPO Hyperparameters
+dpo_beta: 0.1
+dpo_epochs: 2
+dpo_lr: 0.00005

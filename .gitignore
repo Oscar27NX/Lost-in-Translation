@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Lean 4
+lean_extractor/.lake/
+lean_extractor/build/
+
+# Runtime session storage & training artifacts
+data/sessions/*.json
+training/outputs/
+training/checkpoints/
+*.jsonl
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

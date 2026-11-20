@@ -1,0 +1,8 @@
+name = "infotree_dumper"
+version = "0.1.0"
+defaultTargets = ["infotree_dumper"]
+
+[[lean_exe]]
+name = "infotree_dumper"
+root = "InfoTreeDumper"
+supportInterpreter = true

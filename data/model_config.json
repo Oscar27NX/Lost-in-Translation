@@ -1,0 +1,8 @@
+{
+  "backend_mode": "symbolic_baseline",
+  "base_url": "http://localhost:11434/v1",
+  "model_name": "qwen2.5-math:7b-instruct",
+  "api_key": "",
+  "temperature": 0.15,
+  "default_fidelity": "literal"
+}
