@@ -1,6 +1,6 @@
 # Lost In Translation
 
-**From a Lean 4 `InfoTree` source to a LaTeX Proof Workbench with Human-in-the-Loop Provenance Auditing**
+**From a Lean 4 `InfoTree` source to a LaTeX Proof Workbench with Human-in-the-Loop Provenance Auditing.**
 
 > *Instead of prompting a giant frontier model to be "helpful" and smooth over gaps, **Lost In Translation** extracts formal Lean 4 `InfoTree` state transitions (`goalsBefore` → `goalsAfter`, exact source spans, and referenced constants), feeds them to specialized open-weights small LMs, and places Human-in-the-Loop line features such as flagging, editing, and targeted regeneration at the center of the workflow.*
 
@@ -118,4 +118,4 @@ Lost-in-Translation/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+See [LICENSE](LICENSE).
