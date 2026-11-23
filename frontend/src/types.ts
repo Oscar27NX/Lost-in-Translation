@@ -143,6 +143,7 @@ export interface ExampleSummary {
 
 export interface ModelConfig {
   backend_mode: "symbolic_baseline" | "openai_compatible_lm";
+  symbolic_variant: "symbolic_literal_v0_1" | "symbolic_literal_v0_2";
   base_url: string;
   model_name: string;
   api_key: string;
@@ -155,6 +156,7 @@ export interface HealthStatus {
   version: string;
   lean4_cli_available: boolean;
   backend_mode: "symbolic_baseline" | "openai_compatible_lm";
+  symbolic_variant?: "symbolic_literal_v0_1" | "symbolic_literal_v0_2";
   model_name: string;
 }
 

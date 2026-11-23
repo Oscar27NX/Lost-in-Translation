@@ -541,7 +541,9 @@ export default function App() {
             <span>
               {health?.backend_mode === "openai_compatible_lm"
                 ? `LM: ${health.model_name}`
-                : "Symbolic-Literal Baseline"}
+                : health?.symbolic_variant === "symbolic_literal_v0_1"
+                ? "Symbolic-Literal v0.1"
+                : "Symbolic-Literal v0.2"}
             </span>
           </button>
 

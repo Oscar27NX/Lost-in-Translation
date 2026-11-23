@@ -58,12 +58,18 @@ def _session_response(session: TranslationSession) -> dict:
 @app.get("/api/health")
 async def health() -> dict:
     cfg = load_model_config()
+    symbolic_model = (
+        "lit-symbolic-literal-v0.2"
+        if cfg.symbolic_variant == "symbolic_literal_v0_2"
+        else "lit-symbolic-literal-v0.1"
+    )
     return {
         "status": "ok",
         "version": "0.1.0",
         "lean4_cli_available": is_lean_available(),
         "backend_mode": cfg.backend_mode,
-        "model_name": cfg.model_name if cfg.backend_mode == "openai_compatible_lm" else "lit-symbolic-literal-v0.1",
+        "symbolic_variant": cfg.symbolic_variant,
+        "model_name": cfg.model_name if cfg.backend_mode == "openai_compatible_lm" else symbolic_model,
     }
 
 
@@ -121,7 +127,7 @@ async def create_session(req: CreateSessionRequest) -> dict:
     if not req.lean_source or not req.lean_source.strip():
         raise HTTPException(status_code=400, detail="Provide either example_key or non-empty lean_source.")
 
-    infotree = extract_infotree(req.lean_source)
+    infotree = extract_infotree(req.lean_source, symbolic_variant=cfg.symbolic_variant)
     lines, eff_model = await translate_infotree(
         infotree=infotree,
         config=cfg,
@@ -272,7 +278,7 @@ async def retranslate_session(session_id: str, req: RetranslateRequest) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
 
     cfg = load_model_config()
-    infotree = extract_infotree(req.lean_source)
+    infotree = extract_infotree(req.lean_source, symbolic_variant=cfg.symbolic_variant)
     lines, eff_model = await translate_infotree(
         infotree=infotree,
         config=cfg,
@@ -328,7 +334,12 @@ async def update_model_config(cfg: ModelConfig) -> dict:
 @app.post("/api/config/model/test")
 async def test_model_connection(cfg: ModelConfig) -> dict:
     if cfg.backend_mode == "symbolic_baseline":
-        return {"ok": True, "detail": "Built-in Symbolic-Literal Baseline active (zero external dependencies)."}
+        variant_label = (
+            "v0.2 (balanced-argument operators & Greek symbols)"
+            if cfg.symbolic_variant == "symbolic_literal_v0_2"
+            else "v0.1 (frozen token-level baseline)"
+        )
+        return {"ok": True, "detail": f"Built-in Symbolic-Literal {variant_label} active (zero external dependencies)."}
     url = cfg.base_url.rstrip("/") + "/models"
     headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
     try:

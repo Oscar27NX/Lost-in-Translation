@@ -1,5 +1,6 @@
 {
   "backend_mode": "symbolic_baseline",
+  "symbolic_variant": "symbolic_literal_v0_2",
   "base_url": "http://localhost:11434/v1",
   "model_name": "qwen2.5-math:7b-instruct",
   "api_key": "",

@@ -221,6 +221,7 @@ class TranslationSession(BaseModel):
 
 class ModelConfig(BaseModel):
     backend_mode: Literal["symbolic_baseline", "openai_compatible_lm"] = "symbolic_baseline"
+    symbolic_variant: Literal["symbolic_literal_v0_1", "symbolic_literal_v0_2"] = "symbolic_literal_v0_2"
     base_url: str = "http://localhost:11434/v1"
     model_name: str = "qwen2.5-math:7b-instruct"
     api_key: str = ""

@@ -14,6 +14,12 @@ from .latex_fmt import (
     strip_lean_comments_preserving_lines,
     validate_katex_safety,
 )
+from .latex_fmt_v2 import (
+    escape_latex_code_v2,
+    escape_latex_text_v2,
+    format_greek_or_ident,
+    lean_expr_to_latex_v2,
+)
 from .schemas import (
     DerivationMeta,
     FaithfulnessCheck,
@@ -98,8 +104,18 @@ def _translate_single_node_symbolic(
     fidelity_mode: FidelityMode = FidelityMode.LITERAL,
     instruction: str | None = None,
     active_flags: list[FlagRecord] | None = None,
+    symbolic_variant: str = "symbolic_literal_v0_2",
 ) -> ProofLine:
     """Deterministic symbolic literal translator for arbitrary Lean 4 InfoTree nodes."""
+    is_v2 = symbolic_variant == "symbolic_literal_v0_2"
+    expr_fn = lean_expr_to_latex_v2 if is_v2 else lean_expr_to_latex
+    text_fn = escape_latex_text_v2 if is_v2 else escape_latex_text
+    code_fn = escape_latex_code_v2 if is_v2 else escape_latex_code
+    ident_fn = format_greek_or_ident if is_v2 else (lambda nm: rf"\mathrm{{{escape_latex_text(nm)}}}")
+    eff_model_id = "lit-symbolic-literal-v0.2" if is_v2 else "lit-symbolic-literal-v0.1"
+    decl_max_len = None if is_v2 else 280
+    term_max_len = 360 if is_v2 else 240
+
     clean_src = strip_lean_comments_preserving_lines(node.source_slice).strip()
     collapsed = re.sub(r"\s+", " ", clean_src).strip()
     first_raw = clean_src.splitlines()[0].strip() if clean_src else ""
@@ -134,7 +150,7 @@ def _translate_single_node_symbolic(
         d_name = m_def.group(2) if m_def else "definition"
         d_rest = m_def.group(3).strip() if m_def else collapsed
         section_label = f"Definition ({d_name})"
-        latex = rf"\textbf{{Definition }} (\mathrm{{{escape_latex_text(d_name)}}})\text{{:}}\quad {lean_expr_to_latex(d_rest, max_len=280)}."
+        latex = rf"\textbf{{Definition }} ({ident_fn(d_name)})\text{{:}}\quad {expr_fn(d_rest, max_len=decl_max_len)}."
         confidence = 0.86
         justification = f"Structural Lean `{m_def.group(1) if m_def else 'def'}` declaration for `{d_name}`."
         procedure.append(f"Extracted definition header & body for `{d_name}`.")
@@ -148,7 +164,7 @@ def _translate_single_node_symbolic(
         t_name = (m_thm.group(2) or "example") if m_thm else "theorem"
         prop = node.goals_after[0].target if node.goals_after else collapsed
         section_label = f"{t_kind.title()} ({t_name})"
-        latex = rf"\textbf{{{t_kind.title()} }} (\mathrm{{{escape_latex_text(t_name)}}})\text{{:}}\quad {lean_expr_to_latex(prop, max_len=280)}."
+        latex = rf"\textbf{{{t_kind.title()} }} ({ident_fn(t_name)})\text{{:}}\quad {expr_fn(prop, max_len=decl_max_len)}."
         confidence = 0.90
         justification = f"Top-level Lean `{t_kind}` statement `{t_name}`."
         procedure.append(f"Parsed `{t_kind}` signature `{t_name}` and target proposition.")
@@ -161,10 +177,10 @@ def _translate_single_node_symbolic(
     elif m := re.match(r"have\s+([A-Za-z0-9_']+)\s*:\s*(.+?)\s*:=", collapsed_no_bullet):
         h_name, h_ty = m.group(1), m.group(2).strip()
         section_label = f"Claim ({h_name})"
-        math_ty = lean_expr_to_latex(h_ty)
-        safe_name = escape_latex_text(h_name)
+        math_ty = expr_fn(h_ty)
+        safe_name = text_fn(h_name)
         if fidelity_mode == FidelityMode.EXPANDED and is_opaque:
-            used_ops = escape_latex_text(", ".join(sorted(tokens & OPAQUE_TACTICS)))
+            used_ops = text_fn(", ".join(sorted(tokens & OPAQUE_TACTICS)))
             latex = rf"\text{{We establish }} ({safe_name})\text{{:}}\quad {math_ty} \quad \text{{(verified via }} \texttt{{{used_ops}}}\text{{; audit intermediate steps)}}."
         elif fidelity_mode == FidelityMode.FORMAL_PROSE:
             latex = rf"\text{{It follows that }} {math_ty}."
@@ -176,29 +192,28 @@ def _translate_single_node_symbolic(
     elif m := re.match(r"have\s*:\s*(.+?)\s*:=", collapsed_no_bullet):
         h_ty = m.group(1).strip()
         section_label = "Intermediate Claim"
-        latex = rf"\text{{Intermediate claim:}}\quad {lean_expr_to_latex(h_ty)}."
+        latex = rf"\text{{Intermediate claim:}}\quad {expr_fn(h_ty)}."
         confidence = 0.77 if is_opaque else 0.87
         justification = "Translates anonymous `have : P := ...` assertion."
         procedure.append("Extract anonymous `have` proposition into formal LaTeX.")
     elif m := re.match(r"have\s*:=\s*(.+)", collapsed_no_bullet):
         term_str = m.group(1).strip()
         section_label = "Intermediate Fact"
-        latex = rf"\text{{Note that }} {lean_expr_to_latex(term_str, max_len=240)}."
+        latex = rf"\text{{Note that }} {expr_fn(term_str, max_len=term_max_len)}."
         confidence = 0.75
         justification = "Records anonymous `have := ...` lemma instantiation (full inferred type requires live Lean 4 InfoTree)."
         procedure.append("Translate anonymous `have :=` term witness.")
     elif m := re.match(r"suffices\s+(?:([A-Za-z0-9_']+)\s*:\s*)?(.+?)\s+(?:by|from)\b", collapsed_no_bullet):
         s_name, s_ty = m.group(1), m.group(2).strip()
         section_label = f"Sufficient Condition ({s_name})" if s_name else "Sufficient Condition"
-        latex = rf"\text{{It suffices to show }}\quad {lean_expr_to_latex(s_ty)}."
+        latex = rf"\text{{It suffices to show }}\quad {expr_fn(s_ty)}."
         confidence = 0.86
         justification = "Translates `suffices` backward goal reduction."
         procedure.append("State sufficient subgoal introduced by `suffices`.")
     elif m := re.match(r"(?:let|set)\s+([A-Za-z0-9_']+)\s*(?::\s*[^:=]+)?\s*:=\s*(.+)", first):
         nm, expr = m.group(1), m.group(2).strip()
         section_label = f"Definition ({nm})"
-        safe_nm = escape_latex_text(nm)
-        latex = rf"\text{{Set }} \mathrm{{{safe_nm}}} := {lean_expr_to_latex(expr)}."
+        latex = rf"\text{{Set }} {ident_fn(nm)} := {expr_fn(expr)}."
         confidence = 0.91
         justification = f"Literal local definition binding `{nm}`."
         procedure.append(f"Translate local binding `{nm} := ...`.")
@@ -206,7 +221,7 @@ def _translate_single_node_symbolic(
         binders = (m.group(1) or "").strip()
         section_label = "Introduce Hypotheses"
         if binders:
-            latex = rf"\text{{Let }} {lean_expr_to_latex(binders, max_len=180)} \text{{ be given.}}"
+            latex = rf"\text{{Let }} {expr_fn(binders, max_len=180)} \text{{ be given.}}"
         else:
             latex = r"\text{Introduce hypotheses from the goal context.}"
         confidence = 0.90
@@ -218,9 +233,9 @@ def _translate_single_node_symbolic(
         src_h = m.group(3).strip()
         section_label = "Witness / Case Elimination"
         if ann_ty:
-            latex = rf"\text{{Obtain }} {lean_expr_to_latex(vars_str, max_len=100)} \text{{ satisfying }} {lean_expr_to_latex(ann_ty, max_len=240)}."
+            latex = rf"\text{{Obtain }} {expr_fn(vars_str, max_len=100)} \text{{ satisfying }} {expr_fn(ann_ty, max_len=term_max_len)}."
         else:
-            latex = rf"\text{{From }} {lean_expr_to_latex(src_h, max_len=120)}\text{{, choose }} {lean_expr_to_latex(vars_str, max_len=120)}."
+            latex = rf"\text{{From }} {expr_fn(src_h, max_len=120)}\text{{, choose }} {expr_fn(vars_str, max_len=120)}."
         confidence = 0.88
         justification = f"Destructures existential/conjunctive witness(es) `{vars_str}`."
         procedure.append(f"Eliminate witness(es) `{vars_str}`.")
@@ -228,7 +243,7 @@ def _translate_single_node_symbolic(
         arg = first.split(None, 1)[1] if " " in first else ""
         section_label = "Case Split"
         if arg:
-            latex = rf"\text{{Split into cases on }} {lean_expr_to_latex(arg, max_len=200)}."
+            latex = rf"\text{{Split into cases on }} {expr_fn(arg, max_len=200)}."
         else:
             latex = r"\text{Split into cases on the conditional branches.}"
         confidence = 0.82
@@ -247,45 +262,45 @@ def _translate_single_node_symbolic(
     elif head_tok in ("induction", "induction'"):
         var = first.split()[1] if len(first.split()) > 1 else "n"
         section_label = f"Induction on {var}"
-        latex = rf"\text{{We proceed by structural induction on }} {lean_expr_to_latex(var, max_len=80)}."
+        latex = rf"\text{{We proceed by structural induction on }} {expr_fn(var, max_len=80)}."
         confidence = 0.89
         justification = f"Initiates inductive case split on `{var}`."
         procedure.append(f"Split InfoTree goal into base and inductive subgoals for `{var}`.")
     elif head_tok in ("rw", "rwa", "erw", "conv_lhs", "conv_rhs"):
         section_label = "Equational Rewrite"
-        latex = rf"\text{{Rewriting by }} \texttt{{{escape_latex_code(first)}}} \text{{ transforms the current goal.}}"
+        latex = rf"\text{{Rewriting by }} \texttt{{{code_fn(first)}}} \text{{ transforms the current goal.}}"
         confidence = 0.80
         justification = f"Applies equational substitution via `{head_tok}`."
         procedure.append(f"Trace rewrite sequence `{first[:80]}` on active goal.")
     elif head_tok in ("unfold", "dsimp"):
         body = first.split(None, 1)[1] if " " in first else first
         section_label = "Unfold Definition"
-        latex = rf"\text{{Unfolding }} \texttt{{{escape_latex_code(body)}}} \text{{ exposes its definition.}}"
+        latex = rf"\text{{Unfolding }} \texttt{{{code_fn(body)}}} \text{{ exposes its definition.}}"
         confidence = 0.88
         justification = f"Definitional unfolding via `{head_tok}`."
         procedure.append(f"Unfold `{body}` in current goal/hypotheses.")
     elif head_tok == "filter_upwards":
         section_label = "Eventually / Filter Bound"
-        latex = rf"\text{{By filter eventual bounds (}}\texttt{{{escape_latex_code(first)}}}\text{{), the property holds eventually.}}"
+        latex = rf"\text{{By filter eventual bounds (}}\texttt{{{code_fn(first)}}}\text{{), the property holds eventually.}}"
         confidence = 0.78
         justification = "Reduces `Filter.Eventually` / `atTop` goal to asymptotic hypotheses."
         procedure.append("Apply `filter_upwards` eventual reasoning.")
     elif head_tok == "convert":
         body = first.split(None, 1)[1] if " " in first else first
         section_label = "Goal Reduction (convert)"
-        latex = rf"\text{{Matching the goal against }} {lean_expr_to_latex(body, max_len=200)} \text{{ leaves congruence obligations.}}"
+        latex = rf"\text{{Matching the goal against }} {expr_fn(body, max_len=200)} \text{{ leaves congruence obligations.}}"
         confidence = 0.77
         justification = "`convert` unifies goal with a near-matching lemma up to residual side conditions."
         procedure.append("Reduce goal via `convert` congruence matching.")
     elif head_tok in ("gcongr", "ext", "congr"):
         section_label = "Monotonicity / Congruence" if head_tok == "gcongr" else "Extensionality / Congruence"
-        latex = rf"\text{{By }} \texttt{{{escape_latex_code(head_tok)}}}\text{{, reduce to pointwise subgoals via }} \texttt{{{escape_latex_code(first)}}}\text{{.}}"
+        latex = rf"\text{{By }} \texttt{{{code_fn(head_tok)}}}\text{{, reduce to pointwise subgoals via }} \texttt{{{code_fn(first)}}}\text{{.}}"
         confidence = 0.80 if head_tok != "gcongr" else 0.76
         justification = f"Structural `{head_tok}` congruence decomposition."
         procedure.append(f"Decompose goal structurally with `{head_tok}`.")
     elif head_tok in ("simp", "simp_all", "simpa"):
         section_label = "Simplification"
-        latex = rf"\text{{Simplifying via }} \texttt{{{escape_latex_code(first)}}} \text{{ reduces the goal.}}"
+        latex = rf"\text{{Simplifying via }} \texttt{{{code_fn(first)}}} \text{{ reduces the goal.}}"
         confidence = 0.74
         justification = f"Automated rewriting/simplification via `{head_tok}`; inspect InfoTree state diff for exact lemmas applied."
         procedure.append(f"Apply simplifier `{head_tok}` (opaque automation).")
@@ -294,32 +309,32 @@ def _translate_single_node_symbolic(
         "omega", "positivity", "norm_cast", "exact_mod_cast", "push_cast", "zify", "interval_cases",
     ):
         section_label = "Algebraic / Arithmetic Automation"
-        latex = rf"\text{{Discharged by arithmetic/algebraic automation }} \texttt{{{escape_latex_code(first)}}}\text{{.}}"
+        latex = rf"\text{{Discharged by arithmetic/algebraic automation }} \texttt{{{code_fn(first)}}}\text{{.}}"
         confidence = 0.73
         justification = f"Automated arithmetic/ring/cast procedure `{head_tok}`."
         procedure.append(f"Invoke decision/normalization tactic `{head_tok}`.")
     elif head_tok in ("aesop", "aesop_cat", "grind", "decide", "tauto", "solve_by_elim", "apply_rules"):
         section_label = "Automated Search"
-        latex = rf"\text{{Closed by automated proof search }} \texttt{{{escape_latex_code(first)}}}\text{{.}}"
+        latex = rf"\text{{Closed by automated proof search }} \texttt{{{code_fn(first)}}}\text{{.}}"
         confidence = 0.68
         justification = f"Opaque search tactic `{head_tok}` discharged the subgoal without an explicit human proof trace."
         procedure.append(f"Opaque search via `{head_tok}` (audit recommended).")
     elif head_tok == "calc":
         section_label = "Calculational Chain"
-        latex = rf"\text{{By the calculational chain: }}\; {lean_expr_to_latex(first[4:].strip())}"
+        latex = rf"\text{{By the calculational chain: }}\; {expr_fn(first[4:].strip())}"
         confidence = 0.83
         justification = "Translates Lean `calc` transitivity chain."
         procedure.append("Align `calc` steps with transitive relation symbols.")
     elif head_tok in ("exact", "exacts", "apply", "refine", "refine'", "use", "assumption", "rfl"):
         body = first.split(None, 1)[1] if " " in first else first
         section_label = "Goal Discharge / Witness"
-        latex = rf"\text{{Conclude/refine via }} {lean_expr_to_latex(body, max_len=240)}."
+        latex = rf"\text{{Conclude/refine via }} {expr_fn(body, max_len=term_max_len)}."
         confidence = 0.84
         justification = f"Closes or refines the active goal using `{head_tok}`."
         procedure.append(f"Verify `{head_tok}` term unifies with active target.")
     else:
         section_label = "Tactic Step"
-        latex = rf"\text{{Applying }} \texttt{{{escape_latex_code(first)}}} \text{{ advances the proof state.}}"
+        latex = rf"\text{{Applying }} \texttt{{{code_fn(first)}}} \text{{ advances the proof state.}}"
         confidence = 0.72 if is_opaque else 0.77
         justification = "Literal fallback translation of Lean tactic slice."
         procedure.append(f"Record tactic `{first[:80]}` directly to avoid hallucinating unsupported prose.")
@@ -338,7 +353,7 @@ def _translate_single_node_symbolic(
         if any(c.value == "missing_hypothesis" for f in unresolved_flags for c in f.categories):
             added_hyps = [h.name for g in node.goals_before for h in g.hypotheses][:3]
             if added_hyps:
-                safe_hyps = escape_latex_text(", ".join(added_hyps))
+                safe_hyps = text_fn(", ".join(added_hyps))
                 latex = rf"\text{{Using hypotheses }} {safe_hyps}\text{{: }}\; " + latex
         justification += f" Regenerated to address reviewer flag(s): {cats}."
     if instruction:
@@ -348,7 +363,7 @@ def _translate_single_node_symbolic(
     # Structural KaTeX safety guard before emitting
     safety_issues = validate_katex_safety(latex)
     if safety_issues:
-        latex = rf"\text{{Lean step: }} \texttt{{{escape_latex_code(first, max_len=200)}}}"
+        latex = rf"\text{{Lean step: }} \texttt{{{code_fn(first, max_len=200)}}}"
         checks.append(
             FaithfulnessCheck(
                 name="latex_safety_fallback",
@@ -380,7 +395,7 @@ def _translate_single_node_symbolic(
         justification=justification,
         tactics_used=tactics_used or [node.tactic_kind],
         referenced_lemmas=node.referenced_constants,
-        model_id="lit-symbolic-literal-v0.1",
+        model_id=eff_model_id,
         fidelity_mode=fidelity_mode,
         confidence=round(confidence, 2),
         opaque_automation=is_opaque,
@@ -523,7 +538,12 @@ async def translate_infotree(
                     )
                 )
             except Exception as exc:
-                fallback = _translate_single_node_symbolic(node, idx, fidelity_mode=fidelity_mode)
+                fallback = _translate_single_node_symbolic(
+                    node,
+                    idx,
+                    fidelity_mode=fidelity_mode,
+                    symbolic_variant=config.symbolic_variant,
+                )
                 fallback.derivation.checks.append(
                     FaithfulnessCheck(
                         name="lm_fallback",
@@ -535,18 +555,28 @@ async def translate_infotree(
         return lines, config.model_name
 
     # Symbolic-Literal Baseline mode: use rich curated literal pairs when matching a curated fixture
+    eff_model_id = (
+        "lit-symbolic-literal-v0.2"
+        if config.symbolic_variant == "symbolic_literal_v0_2"
+        else "lit-symbolic-literal-v0.1"
+    )
     examples = get_curated_examples()
     if example_key and example_key in examples:
-        return build_lines_from_curated(examples[example_key], fidelity_mode=fidelity_mode), "lit-symbolic-literal-v0.1"
+        return build_lines_from_curated(examples[example_key], fidelity_mode=fidelity_mode), eff_model_id
     for ex in examples.values():
         if ex.infotree.source_code.strip() == infotree.source_code.strip():
-            return build_lines_from_curated(ex, fidelity_mode=fidelity_mode), "lit-symbolic-literal-v0.1"
+            return build_lines_from_curated(ex, fidelity_mode=fidelity_mode), eff_model_id
 
     lines = [
-        _translate_single_node_symbolic(node, idx, fidelity_mode=fidelity_mode)
+        _translate_single_node_symbolic(
+            node,
+            idx,
+            fidelity_mode=fidelity_mode,
+            symbolic_variant=config.symbolic_variant,
+        )
         for idx, node in enumerate(infotree.nodes, start=1)
     ]
-    return lines, "lit-symbolic-literal-v0.1"
+    return lines, eff_model_id
 
 
 async def regenerate_single_line(
@@ -687,5 +717,6 @@ async def regenerate_single_line(
         fidelity_mode=fidelity_mode,
         instruction=instruction,
         active_flags=active_flags,
+        symbolic_variant=config.symbolic_variant,
     )
     return regen_line.latex, regen_line.derivation

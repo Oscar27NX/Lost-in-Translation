@@ -9,10 +9,15 @@ from pathlib import Path
 
 from .fixtures import REPO_ROOT, get_curated_examples
 from .latex_fmt import lean_expr_to_latex, strip_lean_comments_preserving_lines
+from .latex_fmt_v2 import lean_expr_to_latex_v2
 from .schemas import GoalState, Hypothesis, InfoTreeDocument, InfoTreeNode, Span
 
 # Keep backwards-compatible alias for internal/external imports
 _lean_expr_to_basic_latex = lean_expr_to_latex
+
+
+def _get_expr_formatter(symbolic_variant: str):
+    return lean_expr_to_latex_v2 if symbolic_variant == "symbolic_literal_v0_2" else lean_expr_to_latex
 
 OPAQUE_TACTICS = {
     "linarith",
@@ -160,7 +165,9 @@ def _extract_binders(binders_str: str) -> list[Hypothesis]:
     return hyps
 
 
-def _parse_theorem_header(source_code: str) -> tuple[str, str, str]:
+def _parse_theorem_header(
+    source_code: str, symbolic_variant: str = "symbolic_literal_v0_2"
+) -> tuple[str, str, str]:
     clean = strip_lean_comments_preserving_lines(source_code)
     matches = list(
         re.finditer(
@@ -179,11 +186,13 @@ def _parse_theorem_header(source_code: str) -> tuple[str, str, str]:
     sig_clean = re.sub(r"\s+", " ", match.group(3)).strip()
     stmt_lean = f"{kind} {name} {sig_clean}".strip()
     _, prop = _split_top_level_colon(sig_clean)
-    stmt_latex = lean_expr_to_latex(prop)
+    stmt_latex = _get_expr_formatter(symbolic_variant)(prop)
     return (name, stmt_lean, stmt_latex)
 
 
-def try_extract_via_lean4(source_code: str) -> InfoTreeDocument | None:
+def try_extract_via_lean4(
+    source_code: str, symbolic_variant: str = "symbolic_literal_v0_2"
+) -> InfoTreeDocument | None:
     """Invoke the compiled Lean 4 `infotree_dumper` binary if Lean 4 + Lake are available."""
     if not is_lean_available():
         return None
@@ -250,7 +259,7 @@ def try_extract_via_lean4(source_code: str) -> InfoTreeDocument | None:
             )
         if not nodes:
             return None
-        thm_name, stmt_lean, stmt_latex = _parse_theorem_header(source_code)
+        thm_name, stmt_lean, stmt_latex = _parse_theorem_header(source_code, symbolic_variant=symbolic_variant)
         return InfoTreeDocument(
             theorem_name=thm_name,
             statement_lean=stmt_lean,
@@ -286,14 +295,16 @@ def _delim_delta(line: str) -> int:
     return delta
 
 
-def extract_infotree_heuristic(source_code: str) -> InfoTreeDocument:
+def extract_infotree_heuristic(
+    source_code: str, symbolic_variant: str = "symbolic_literal_v0_2"
+) -> InfoTreeDocument:
     """
     Deterministic fallback InfoTree extractor when local Lean 4 toolchain is unavailable.
     Strips nested block and line comments without changing line numbers, handles multi-theorem
     files and `def`/`abbrev` blocks, respects Lean `·` bullets and unbalanced delimiters, and
     emits InfoTreeNodes tagged with `extractor_mode = 'heuristic_parser'`.
     """
-    thm_name, stmt_lean, stmt_latex = _parse_theorem_header(source_code)
+    thm_name, stmt_lean, stmt_latex = _parse_theorem_header(source_code, symbolic_variant=symbolic_variant)
     clean_source = strip_lean_comments_preserving_lines(source_code)
 
     raw_lines = source_code.splitlines()
@@ -599,7 +610,9 @@ def extract_infotree_heuristic(source_code: str) -> InfoTreeDocument:
     )
 
 
-def extract_infotree(source_code: str) -> InfoTreeDocument:
+def extract_infotree(
+    source_code: str, symbolic_variant: str = "symbolic_literal_v0_2"
+) -> InfoTreeDocument:
     """
     Extract an InfoTreeDocument from Lean 4 source:
       1. If the source matches one of the bundled verified fixtures verbatim, return its precomputed InfoTree.
@@ -611,8 +624,8 @@ def extract_infotree(source_code: str) -> InfoTreeDocument:
         if ex.infotree.source_code.strip() == normalized:
             return ex.infotree.model_copy(deep=True)
 
-    live_doc = try_extract_via_lean4(source_code)
+    live_doc = try_extract_via_lean4(source_code, symbolic_variant=symbolic_variant)
     if live_doc is not None:
         return live_doc
 
-    return extract_infotree_heuristic(source_code)
+    return extract_infotree_heuristic(source_code, symbolic_variant=symbolic_variant)

@@ -106,6 +106,29 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             </div>
           </div>
 
+          {cfg.backend_mode === "symbolic_baseline" && (
+            <div className="form-group">
+              <label>Symbolic Variant</label>
+              <select
+                className="text-input"
+                value={cfg.symbolic_variant ?? "symbolic_literal_v0_2"}
+                onChange={(e) =>
+                  setCfg({
+                    ...cfg,
+                    symbolic_variant: e.target.value as "symbolic_literal_v0_1" | "symbolic_literal_v0_2",
+                  })
+                }
+              >
+                <option value="symbolic_literal_v0_2">
+                  v0.2 — Balanced-Argument Operators &amp; Greek Symbols
+                </option>
+                <option value="symbolic_literal_v0_1">
+                  v0.1 — Frozen Token-Level Baseline
+                </option>
+              </select>
+            </div>
+          )}
+
           {cfg.backend_mode === "openai_compatible_lm" && (
             <>
               <div className="form-row-2">
